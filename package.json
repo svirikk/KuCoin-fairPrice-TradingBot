@@ -1,7 +1,7 @@
 {
-  "name": "bybit-futures-trading-bot",
+  "name": "kucoin-futures-trading-bot",
   "version": "2.0.0",
-  "description": "Automated trading bot for Bybit Futures that reads signals from Spread Monitor Bot via Telegram",
+  "description": "Automated trading bot for KuCoin Futures that reads signals from Telegram Monitor Bot",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -11,21 +11,20 @@
     "positions": "node scripts/check-positions.js"
   },
   "keywords": [
-    "bybit",
+    "kucoin",
     "trading",
     "bot",
     "futures",
     "telegram",
-    "spread",
     "automation"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "bybit-api": "^3.6.0",
-    "node-telegram-bot-api": "^0.66.0",
-    "dotenv": "^16.4.5",
     "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0",
+    "uuid": "^9.0.1",
     "winston": "^3.15.0"
   },
   "engines": {

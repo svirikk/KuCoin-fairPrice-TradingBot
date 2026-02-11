@@ -7,7 +7,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 import { config } from './config/settings.js';
 import logger from './utils/logger.js';
-import bybitService from './services/bybit.service.js';
+import kucoinService from './services/kucoin.service.js';
 import telegramService from './services/telegram.service.js';
 import positionService from './services/position.service.js';
 import riskService from './services/risk.service.js';
@@ -35,14 +35,14 @@ const statistics = {
 async function initialize() {
   try {
     logger.info('='.repeat(50));
-    logger.info('Starting Bybit Futures Trading Bot...');
+    logger.info('Starting KuCoin Futures Trading Bot...');
     logger.info('='.repeat(50));
 
-    // Підключення до Bybit
-    await bybitService.connect();
+    // Підключення до KuCoin
+    await kucoinService.connect();
 
     // Отримуємо початковий баланс
-    statistics.startBalance = await bybitService.getUSDTBalance();
+    statistics.startBalance = await kucoinService.getUSDTBalance();
     statistics.currentBalance = statistics.startBalance;
 
     logger.info(`[INIT] Starting balance: ${statistics.startBalance} USDT`);
@@ -61,11 +61,11 @@ async function initialize() {
     if (!config.trading.dryRun) {
       await telegramService.sendMessage(
         config.telegram.channelId,
-        `🤖 <b>TRADING BOT STARTED</b>\n\n` +
-        `Balance: ${statistics.startBalance.toFixed(2)} USDT\n` +
-        `Mode: ${config.trading.dryRun ? 'DRY RUN' : 'LIVE TRADING'}\n` +
-        `Position size: ${config.risk.positionSizePercent}% | Leverage: ${config.risk.leverage}x\n` +
-        `Trading hours: ${config.tradingHours.startHour}:00-${config.tradingHours.endHour}:00 UTC`
+        `🤖 <b>TRADING BOT ЗАПУЩЕНО</b>\n\n` +
+        `Баланс: ${statistics.startBalance.toFixed(2)} USDT\n` +
+        `Режим: ${config.trading.dryRun ? 'DRY RUN' : 'LIVE TRADING'}\n` +
+        `Розмір позиції: ${config.risk.positionSizePercent}% | Плече: ${config.risk.leverage}x\n` +
+        `Торгові години: ${config.tradingHours.startHour}:00-${config.tradingHours.endHour}:00 UTC`
       );
     }
 
@@ -81,7 +81,7 @@ async function initialize() {
 }
 
 /**
- * Обробка торговельного сигналу від Spread Monitor Bot.
+ * Обробка торговельного сигналу від KuCoin Monitor Bot.
  *
  * Розгалуження:
  *   - signal.type === 'OPEN'  → openPosition()
@@ -93,7 +93,7 @@ async function handleSignal(signal) {
 
     const { type, symbol, direction, timestamp } = signal;
 
-    logger.info(`[SIGNAL] Processing: type=${type} symbol=${symbol} direction=${direction}`);
+    logger.info(`[SIGNAL] Processing: type=${type} symbol=${symbol} direction=${direction || 'N/A'}`);
 
     // --- OPEN сигнал ---
     if (type === 'OPEN') {
@@ -147,11 +147,11 @@ async function handleSignal(signal) {
       if (!config.trading.dryRun) {
         await telegramService.sendMessage(
           config.telegram.channelId,
-          `❌ <b>ERROR PROCESSING SIGNAL</b>\n\n` +
-          `Type: ${signal.type || 'UNKNOWN'}\n` +
-          `Symbol: ${signal.symbol || 'UNKNOWN'}\n` +
-          `Direction: ${signal.direction || 'UNKNOWN'}\n` +
-          `Error: ${error.message}`
+          `❌ <b>ПОМИЛКА ОБРОБКИ СИГНАЛУ</b>\n\n` +
+          `Тип: ${signal.type || 'UNKNOWN'}\n` +
+          `Символ: ${signal.symbol || 'UNKNOWN'}\n` +
+          `Напрямок: ${signal.direction || 'UNKNOWN'}\n` +
+          `Помилка: ${error.message}`
         );
       }
     } catch (telegramError) {
@@ -227,7 +227,7 @@ async function validateSignal(signal) {
 
   // 7. Перевірка балансу
   try {
-    const balance = await bybitService.getUSDTBalance();
+    const balance = await kucoinService.getUSDTBalance();
     statistics.currentBalance = balance;
 
     if (balance <= 0) {
@@ -247,8 +247,8 @@ async function validateSignal(signal) {
 
   // 8. Перевірка що символ існує та торгується
   try {
-    const symbolInfo = await bybitService.getSymbolInfo(symbol);
-    if (symbolInfo.status !== 'Trading') {
+    const symbolInfo = await kucoinService.getSymbolInfo(symbol);
+    if (symbolInfo.status !== 'Open') {
       return {
         valid: false,
         reason: `Symbol ${symbol} is not trading`,
@@ -277,14 +277,14 @@ async function openPosition(signal) {
     logger.info(`[TRADE] Opening position: ${symbol} ${direction}`);
 
     // Отримуємо поточний баланс
-    const balance = await bybitService.getUSDTBalance();
+    const balance = await kucoinService.getUSDTBalance();
     statistics.currentBalance = balance;
 
     // Отримуємо поточну ціну
-    const currentPrice = await bybitService.getCurrentPrice(symbol);
+    const currentPrice = await kucoinService.getCurrentPrice(symbol);
 
     // Отримуємо інформацію про символ
-    const symbolInfo = await bybitService.getSymbolInfo(symbol);
+    const symbolInfo = await kucoinService.getSymbolInfo(symbol);
 
     // Розраховуємо параметри позиції (БЕЗ TP/SL)
     const positionParams = riskService.calculatePositionParameters(
@@ -308,7 +308,7 @@ async function openPosition(signal) {
       logger.info(`  Symbol: ${symbol}`);
       logger.info(`  Direction: ${direction}`);
       logger.info(`  Entry Price: ${positionParams.entryPrice}`);
-      logger.info(`  Quantity: ${positionParams.quantity}`);
+      logger.info(`  Quantity: ${positionParams.quantity} lots`);
       logger.info(`  Position Size: ${positionParams.positionSizeUSDT} USDT`);
       logger.info(`  Required Margin: ${positionParams.requiredMargin} USDT`);
 
@@ -330,22 +330,21 @@ async function openPosition(signal) {
     }
 
     // Реальна торгівля
-    // 1. Встановлюємо плече
-    await bybitService.setLeverage(symbol, config.risk.leverage);
+    // KuCoin не потребує окремого setLeverage — плече в ордері
+    await kucoinService.setLeverage(symbol, config.risk.leverage);
 
-    // 2. Відкриваємо Market ордер
-    const side = direction === 'LONG' ? 'Buy' : 'Sell';
-    const positionIdx = bybitService.getPositionIdx(direction);
-    const orderResult = await bybitService.openMarketOrder(
+    // Відкриваємо Market ордер
+    const side = direction === 'LONG' ? 'buy' : 'sell';
+    const orderResult = await kucoinService.openMarketOrder(
       symbol,
       side,
       positionParams.quantity,
-      positionIdx
+      config.risk.leverage
     );
 
-    // 3. TP/SL НЕ встановлюються — позиція закривається по CLOSE сигналу
+    // TP/SL НЕ встановлюються — позиція закривається по CLOSE сигналу
 
-    // 4. Додаємо позицію до моніторингу
+    // Додаємо позицію до моніторингу
     positionService.addOpenPosition({
       symbol,
       direction,
@@ -353,19 +352,19 @@ async function openPosition(signal) {
       quantity: positionParams.quantity,
       orderId: orderResult.orderId,
       timestamp,
-      positionIdx: positionIdx,
       positionSizeUSDT: positionParams.positionSizeUSDT
     });
 
-    // 5. Оновлюємо статистику
+    // Оновлюємо статистику
     statistics.totalTrades++;
     statistics.dailyTrades++;
 
-    // 6. Відправляємо повідомлення в Telegram
+    // Відправляємо повідомлення в Telegram
     await telegramService.sendMessage(
       config.telegram.channelId,
       telegramService.formatPositionOpenedMessage({
         ...positionParams,
+        symbol,
         balance,
         timestamp
       })
@@ -380,19 +379,19 @@ async function openPosition(signal) {
 }
 
 /**
- * Закриття позиції по CLOSE сигналу від Spread Monitor Bot.
+ * Закриття позиції по CLOSE сигналу від KuCoin Monitor Bot.
  *
  * Логіка:
  *   1. Перевіряє наявність відкритої позиції через positionService
- *   2. Якщо є — закриває Market ордером з reduceOnly: true
+ *   2. Якщо є — закриває Market ордером з closeOrder: true
  *   3. Відправляє повідомлення в Telegram
  *   4. Видаляє позицію з positionService
  */
 async function closePosition(signal) {
-  const { symbol, direction } = signal;
+  const { symbol } = signal;
 
   try {
-    logger.info(`[TRADE] Received CLOSE signal: ${symbol} ${direction}`);
+    logger.info(`[TRADE] Received CLOSE signal: ${symbol}`);
 
     // 1. Перевіряємо наявність відкритої позиції
     if (!positionService.hasOpenPosition(symbol)) {
@@ -402,21 +401,13 @@ async function closePosition(signal) {
 
     const trackedPosition = positionService.getOpenPosition(symbol);
 
-    // Перевіряємо співпадіння напрямку (опціонально - для надійності)
-    if (trackedPosition.direction !== direction) {
-      logger.warn(
-        `[TRADE] Direction mismatch: tracked=${trackedPosition.direction}, signal=${direction} — ignoring CLOSE signal`
-      );
-      return;
-    }
-
     if (config.trading.dryRun) {
       // DRY RUN — симулюємо закриття
       logger.info('[DRY RUN] Would close position:');
       logger.info(`  Symbol: ${symbol}`);
-      logger.info(`  Direction: ${direction}`);
+      logger.info(`  Direction: ${trackedPosition.direction}`);
       logger.info(`  Entry Price: ${trackedPosition.entryPrice}`);
-      logger.info(`  Quantity: ${trackedPosition.quantity}`);
+      logger.info(`  Quantity: ${trackedPosition.quantity} lots`);
 
       // Видаляємо з positionService
       positionService.removeOpenPosition(symbol);
@@ -426,15 +417,14 @@ async function closePosition(signal) {
     }
 
     // 2. Реальна торгівля - закриваємо на біржі
-    // Визначаємо closeSide: LONG → Sell, SHORT → Buy
-    const closeSide = direction === 'LONG' ? 'Sell' : 'Buy';
-    const positionIdx = trackedPosition.positionIdx || bybitService.getPositionIdx(direction);
+    // Визначаємо closeSide: LONG → sell, SHORT → buy
+    const closeSide = trackedPosition.direction === 'LONG' ? 'sell' : 'buy';
 
-    const closeResult = await bybitService.closeMarketOrder(
+    const closeResult = await kucoinService.closeMarketOrder(
       symbol,
       closeSide,
       trackedPosition.quantity,
-      positionIdx
+      config.risk.leverage
     );
 
     logger.info(`[TRADE] Close order executed: Order ID ${closeResult.orderId}`);
@@ -443,7 +433,7 @@ async function closePosition(signal) {
     // Альтернативно можна одразу видалити позицію тут:
     // positionService.removeOpenPosition(symbol);
 
-    logger.info(`[TRADE] ✅ Position close order submitted: ${symbol} ${direction}`);
+    logger.info(`[TRADE] ✅ Position close order submitted: ${symbol}`);
 
   } catch (error) {
     logger.error(`[TRADE] Error closing position ${symbol}: ${error.message}`);
@@ -453,10 +443,9 @@ async function closePosition(signal) {
       if (!config.trading.dryRun) {
         await telegramService.sendMessage(
           config.telegram.channelId,
-          `❌ <b>ERROR CLOSING POSITION</b>\n\n` +
-          `Symbol: ${symbol}\n` +
-          `Direction: ${direction}\n` +
-          `Error: ${error.message}`
+          `❌ <b>ПОМИЛКА ЗАКРИТТЯ ПОЗИЦІЇ</b>\n\n` +
+          `Символ: ${symbol}\n` +
+          `Помилка: ${error.message}`
         );
       }
     } catch (telegramError) {
@@ -505,7 +494,7 @@ async function sendDailyReport() {
     }
 
     const posStats = positionService.getStatistics();
-    const currentBalance = await bybitService.getUSDTBalance();
+    const currentBalance = await kucoinService.getUSDTBalance();
     const startBalance = statistics.startBalance;
     const totalPnl = currentBalance - startBalance;
     const roi = startBalance > 0 ? (totalPnl / startBalance) * 100 : 0;
@@ -551,9 +540,9 @@ process.on('SIGINT', async () => {
   if (!config.trading.dryRun) {
     await telegramService.sendMessage(
       config.telegram.channelId,
-      `🛑 <b>TRADING BOT STOPPED</b>\n\n` +
-      `Open positions: ${positionService.getOpenPositionsCount()}\n` +
-      `Total trades today: ${statistics.dailyTrades}`
+      `🛑 <b>TRADING BOT ЗУПИНЕНО</b>\n\n` +
+      `Відкриті позиції: ${positionService.getOpenPositionsCount()}\n` +
+      `Всього угод сьогодні: ${statistics.dailyTrades}`
     );
   }
 
