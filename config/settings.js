@@ -4,8 +4,9 @@ dotenv.config();
 
 // Валідація обов'язкових змінних
 const requiredEnvVars = [
-  'BYBIT_API_KEY',
-  'BYBIT_API_SECRET',
+  'KUCOIN_API_KEY',
+  'KUCOIN_API_SECRET',
+  'KUCOIN_API_PASSPHRASE',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHANNEL_ID'
 ];
@@ -17,16 +18,14 @@ for (const envVar of requiredEnvVars) {
 }
 
 export const config = {
-  // Bybit API
-  bybit: {
-    apiKey: process.env.BYBIT_API_KEY,
-    apiSecret: process.env.BYBIT_API_SECRET,
-    testnet: process.env.BYBIT_TESTNET === 'true',
-    // ONE_WAY (positionIdx=0) або HEDGE (LONG idx=1, SHORT idx=2)
-    positionMode: (process.env.BYBIT_POSITION_MODE || 'ONE_WAY').toUpperCase(),
-    baseURL: process.env.BYBIT_TESTNET === 'true'
-      ? 'https://api-testnet.bybit.com'
-      : 'https://api.bybit.com'
+  // KuCoin Futures API
+  kucoin: {
+    apiKey: process.env.KUCOIN_API_KEY,
+    apiSecret: process.env.KUCOIN_API_SECRET,
+    apiPassphrase: process.env.KUCOIN_API_PASSPHRASE,
+    baseURL: 'https://api-futures.kucoin.com',
+    // KuCoin не має testnet для futures, тільки mainnet
+    testnet: false
   },
 
   // Telegram
@@ -38,16 +37,14 @@ export const config = {
   // Risk Management
   // TP/SL більше не використовуються — позиція закривається по EXIT-сигналу
   risk: {
-    percentage: parseFloat(process.env.RISK_PERCENTAGE || '2.5'),  // залишено для сумісності
-    leverage: parseInt(process.env.LEVERAGE || '20'),
+    leverage: parseInt(process.env.LEVERAGE || '10'),
     positionSizePercent: parseFloat(process.env.POSITION_SIZE_PERCENT || '5')
     // POSITION_SIZE_PERCENT — відсоток від futures-балансу на одну угоду
-    // Наприклад: 5 означає що на одну угоду виділяється 5% балансу
   },
 
   // Trading Settings
   trading: {
-    allowedSymbols: (process.env.ALLOWED_SYMBOLS || 'ADAUSDT,TAOUSDT,UNIUSDT').split(',').map(s => s.trim()),
+    allowedSymbols: (process.env.ALLOWED_SYMBOLS || 'XBTUSDTM,ETHUSDTM').split(',').map(s => s.trim()),
     maxDailyTrades: parseInt(process.env.MAX_DAILY_TRADES || '20'),
     maxOpenPositions: parseInt(process.env.MAX_OPEN_POSITIONS || '3'),
     dryRun: process.env.DRY_RUN === 'true'
@@ -56,8 +53,8 @@ export const config = {
   // Trading Hours (UTC)
   tradingHours: {
     enabled: process.env.TRADING_HOURS_ENABLED === 'true',
-    startHour: parseInt(process.env.TRADING_START_HOUR || '6'),
-    endHour: parseInt(process.env.TRADING_END_HOUR || '22'),
+    startHour: parseInt(process.env.TRADING_START_HOUR || '0'),
+    endHour: parseInt(process.env.TRADING_END_HOUR || '23'),
     timezone: process.env.TIMEZONE || 'UTC'
   }
 };
