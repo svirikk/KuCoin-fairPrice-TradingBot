@@ -108,11 +108,17 @@ export function formatDuration(seconds) {
 }
 
 /**
- * Перевіряє чи символ в списку дозволених
+ * Перевіряє чи символ в чорному списку (заблокований)
+ * 
+ * @param {string} symbol - Символ для перевірки (наприклад 'BTCUSDTM')
+ * @param {string} blockedSymbols - Рядок з заблокованими символами через кому
+ * @returns {boolean} - true якщо символ заблокований
  */
-export function isSymbolAllowed(symbol, allowedSymbols) {
-  if (!symbol || !allowedSymbols) return false;
-  const symbols = allowedSymbols.split(',').map(s => s.trim().toUpperCase());
+export function isSymbolBlocked(symbol, blockedSymbols) {
+  if (!symbol) return false;
+  if (!blockedSymbols || blockedSymbols.trim() === '') return false;
+  
+  const symbols = blockedSymbols.split(',').map(s => s.trim().toUpperCase());
   return symbols.includes(symbol.toUpperCase());
 }
 
