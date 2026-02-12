@@ -339,7 +339,8 @@ async function openPosition(signal) {
       symbol,
       side,
       positionParams.quantity,
-      config.risk.leverage
+      config.risk.leverage,
+      config.risk.marginMode          // CROSS або ISOLATED
     );
 
     // TP/SL НЕ встановлюються — позиція закривається по CLOSE сигналу
@@ -424,7 +425,8 @@ async function closePosition(signal) {
       symbol,
       closeSide,
       trackedPosition.quantity,
-      config.risk.leverage
+      config.risk.leverage,
+      config.risk.marginMode          // CROSS або ISOLATED
     );
 
     logger.info(`[TRADE] Close order executed: Order ID ${closeResult.orderId}`);
