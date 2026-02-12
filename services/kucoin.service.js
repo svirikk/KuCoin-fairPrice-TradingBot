@@ -229,10 +229,11 @@ class KuCoinService {
    * @param {string} side - 'buy' або 'sell'
    * @param {number} quantity - Кількість контрактів (цілі числа!)
    * @param {number} leverage - Плече (1-100)
+   * @param {string} marginMode - 'CROSS' або 'ISOLATED' (за замовчуванням CROSS)
    */
-  async openMarketOrder(symbol, side, quantity, leverage) {
+  async openMarketOrder(symbol, side, quantity, leverage, marginMode = 'CROSS') {
     try {
-      logger.info(`[KUCOIN] Opening ${side} market order: ${quantity} lots ${symbol}...`);
+      logger.info(`[KUCOIN] Opening ${side} market order: ${quantity} lots ${symbol} (${marginMode})...`);
       
       // KuCoin вимагає clientOid (унікальний ID)
       const clientOid = uuidv4();
@@ -243,7 +244,8 @@ class KuCoinService {
         symbol: symbol,
         type: 'market',
         leverage: leverage.toString(),
-        size: Math.floor(quantity)       // KuCoin вимагає цілі числа для lots!
+        size: Math.floor(quantity),      // KuCoin вимагає цілі числа для lots!
+        marginMode: marginMode           // CROSS або ISOLATED
       };
       
       const result = await this._post('/api/v1/orders', orderData);
@@ -272,9 +274,9 @@ class KuCoinService {
    * 
    * Використовуємо closeOrder: true для гарантії.
    */
-  async closeMarketOrder(symbol, closeSide, quantity, leverage) {
+  async closeMarketOrder(symbol, closeSide, quantity, leverage, marginMode = 'CROSS') {
     try {
-      logger.info(`[KUCOIN] Closing position: ${closeSide} ${quantity} lots ${symbol}...`);
+      logger.info(`[KUCOIN] Closing position: ${closeSide} ${quantity} lots ${symbol} (${marginMode})...`);
       
       const clientOid = uuidv4();
       
@@ -285,7 +287,8 @@ class KuCoinService {
         type: 'market',
         leverage: leverage.toString(),
         size: Math.floor(quantity),
-        closeOrder: true                 // Параметр для закриття позиції
+        closeOrder: true,                // Параметр для закриття позиції
+        marginMode: marginMode           // CROSS або ISOLATED
       };
       
       const result = await this._post('/api/v1/orders', orderData);
