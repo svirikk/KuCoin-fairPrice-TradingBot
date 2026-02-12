@@ -172,11 +172,42 @@ class TelegramService {
     const markPrice = parseFloat(markPriceMatch[1]);
 
     // 5. Визначаємо напрямок
+    // ЛОГІКА: Mark Price підтягується до Last Price!
+    // 
+    // Якщо Mark > Last:
+    //   - Mark ЗАВИЩЕНА і буде ПАДАТИ до Last
+    //   - Відкриваємо SHORT (очікуємо падіння Mark)
+    //   - Емодзі: 🔴
+    // 
+    // Якщо Mark < Last:
+    //   - Mark ЗАНИЖЕНА і буде РОСТИ до Last
+    //   - Відкриваємо LONG (очікуємо зростання Mark)
+    //   - Емодзі: 🟢
+    
     let direction;
-    if (lastPrice > markPrice) {
-      direction = 'SHORT'; // Ціна завищена → шортимо
+    const emojiMatch = text.match(/[🔴🟢]/);
+    const emoji = emojiMatch ? emojiMatch[0] : null;
+    
+    // Перевіряємо емодзі як додатковий індикатор
+    if (emoji === '🔴' || markPrice > lastPrice) {
+      direction = 'SHORT'; // Mark завищена → буде падати до Last
+    } else if (emoji === '🟢' || markPrice < lastPrice) {
+      direction = 'LONG';  // Mark занижена → буде рости до Last
     } else {
-      direction = 'LONG';  // Ціна занижена → лонгуємо
+      // Якщо ціни рівні (дуже рідкісний випадок)
+      logger.warn(`[TELEGRAM] ENTRY signal: Last=${lastPrice} Mark=${markPrice} are equal, defaulting to LONG`);
+      direction = 'LONG';
+    }
+    
+    // Перевірка консистентності (емодзі має співпадати з розрахунком)
+    if (emoji) {
+      const expectedEmoji = (markPrice > lastPrice) ? '🔴' : '🟢';
+      if (emoji !== expectedEmoji) {
+        logger.warn(
+          `[TELEGRAM] Emoji mismatch! Got ${emoji}, expected ${expectedEmoji} ` +
+          `(Mark=${markPrice}, Last=${lastPrice}). Using price-based direction.`
+        );
+      }
     }
 
     // 6. Час (опційно)
@@ -190,12 +221,17 @@ class TelegramService {
       lastPrice,
       fairPrice: markPrice,  // Використовуємо Mark Price як Fair Price
       spread,
-      timestamp
+      timestamp,
+      emoji  // Додаємо емодзі для дебагу
     };
 
+    // Пояснення логіки в лозі
+    const priceRelation = markPrice > lastPrice ? 'Mark > Last (падіння)' : 'Mark < Last (зростання)';
+    const emojiInfo = emoji ? ` | Emoji: ${emoji}` : '';
+    
     logger.info(
       `[TELEGRAM] Parsed ENTRY signal: ${symbol} ${direction} | ` +
-      `Last=${lastPrice} Mark=${markPrice} (${lastPrice > markPrice ? 'Over' : 'Under'}valued)`
+      `Last=${lastPrice} Mark=${markPrice} | ${priceRelation}${emojiInfo}`
     );
 
     return signal;
