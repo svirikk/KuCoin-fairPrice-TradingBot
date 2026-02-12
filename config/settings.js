@@ -38,8 +38,10 @@ export const config = {
   // TP/SL більше не використовуються — позиція закривається по EXIT-сигналу
   risk: {
     leverage: parseInt(process.env.LEVERAGE || '10'),
-    positionSizePercent: parseFloat(process.env.POSITION_SIZE_PERCENT || '5')
-    // POSITION_SIZE_PERCENT — відсоток від futures-балансу на одну угоду
+    positionSizePercent: parseFloat(process.env.POSITION_SIZE_PERCENT || '5'),
+    marginMode: (process.env.MARGIN_MODE || 'CROSS').toUpperCase()
+    // MARGIN_MODE: CROSS (весь баланс) або ISOLATED (окрема маржа на позицію)
+    // Рекомендовано: CROSS для початківців
   },
 
   // Trading Settings
