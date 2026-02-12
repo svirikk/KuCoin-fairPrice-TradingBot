@@ -60,7 +60,7 @@ class TelegramService {
    * Перевіряє чи це сигнальне повідомлення від KuCoin Monitor Bot.
    * Розпізнає два типи:
    *   - "🚨 KuCoin"          — відкриття позиції (ENTRY)
-   *   - "Цены сравнялись"   — закриття позиції (EXIT)
+   *   - "сравнялись"         — закриття позиції (EXIT, новий і старий формати)
    */
   isSignalMessage(text) {
     if (!text) return false;
@@ -68,8 +68,8 @@ class TelegramService {
     // ENTRY: "🚨 KuCoin - X.XX%"
     const isEntry = text.includes('🚨 KuCoin') && text.includes('👉') && text.includes('👈');
     
-    // EXIT: "✅ ... Цены сравнялись!"
-    const isExit = text.includes('Цены сравнялись');
+    // EXIT: "✅ ... сравнялись!" (новий формат без "Цены")
+    const isExit = text.includes('сравнялись');
     
     return isEntry || isExit;
   }
@@ -118,15 +118,21 @@ class TelegramService {
    * Парсить ENTRY сигнал з динамічним визначенням напрямку.
    *
    * ЛОГІКА НАПРЯМКУ:
-   *   Last Price > Fair Price  →  SHORT (ціна завищена, очікуємо падіння)
-   *   Last Price < Fair Price  →  LONG  (ціна занижена, очікуємо зростання)
+   *   Last Price > Mark Price  →  SHORT (ціна завищена, очікуємо падіння)
+   *   Last Price < Mark Price  →  LONG  (ціна занижена, очікуємо зростання)
    *
-   * Формат:
+   * Формат (новий):
+   *   🚨 KuCoin - 5.06%
+   *   👉TAKEUSDTM👈
+   *   🟢 Last: 0.038620
+   *   ⚖️ Mark: 0.036760
+   *   😎 @ArturLudit
+   *
+   * Формат (старий, підтримується):
    *   🚨 KuCoin - 5.55%
    *   👉BLESSUSDTM👈
    *   🟢 Последняя цена: 0.00559200
    *   ⚖️ Справедливая: 0.00529800
-   *   ⏰ Обнаружено: 16:50:19.198 UTC
    */
   _parseEntrySignal(text) {
     // 1. Символ між 👉 та 👈
@@ -141,25 +147,31 @@ class TelegramService {
     const spreadMatch = text.match(/KuCoin\s*-\s*([\d.]+)%/);
     const spread = spreadMatch ? parseFloat(spreadMatch[1]) : null;
 
-    // 3. Последняя цена (Last Price)
-    const lastPriceMatch = text.match(/Последняя цена:\s*([\d.]+)/i);
+    // 3. Last Price (підтримка обох форматів)
+    let lastPriceMatch = text.match(/Last:\s*([\d.]+)/i);  // Новий формат
+    if (!lastPriceMatch) {
+      lastPriceMatch = text.match(/Последняя цена:\s*([\d.]+)/i);  // Старий формат
+    }
     if (!lastPriceMatch) {
       logger.warn('[TELEGRAM] ENTRY signal: Last Price not found');
       return null;
     }
     const lastPrice = parseFloat(lastPriceMatch[1]);
 
-    // 4. Справедливая (Fair Price)
-    const fairPriceMatch = text.match(/Справедливая:\s*([\d.]+)/i);
-    if (!fairPriceMatch) {
-      logger.warn('[TELEGRAM] ENTRY signal: Fair Price not found');
+    // 4. Mark Price (підтримка обох форматів)
+    let markPriceMatch = text.match(/Mark:\s*([\d.]+)/i);  // Новий формат
+    if (!markPriceMatch) {
+      markPriceMatch = text.match(/Справедливая:\s*([\d.]+)/i);  // Старий формат
+    }
+    if (!markPriceMatch) {
+      logger.warn('[TELEGRAM] ENTRY signal: Mark Price not found');
       return null;
     }
-    const fairPrice = parseFloat(fairPriceMatch[1]);
+    const markPrice = parseFloat(markPriceMatch[1]);
 
     // 5. Визначаємо напрямок
     let direction;
-    if (lastPrice > fairPrice) {
+    if (lastPrice > markPrice) {
       direction = 'SHORT'; // Ціна завищена → шортимо
     } else {
       direction = 'LONG';  // Ціна занижена → лонгуємо
@@ -174,14 +186,14 @@ class TelegramService {
       symbol,
       direction,
       lastPrice,
-      fairPrice,
+      fairPrice: markPrice,  // Використовуємо Mark Price як Fair Price
       spread,
       timestamp
     };
 
     logger.info(
       `[TELEGRAM] Parsed ENTRY signal: ${symbol} ${direction} | ` +
-      `Last=${lastPrice} Fair=${fairPrice} (${lastPrice > fairPrice ? 'Over' : 'Under'}valued)`
+      `Last=${lastPrice} Mark=${markPrice} (${lastPrice > markPrice ? 'Over' : 'Under'}valued)`
     );
 
     return signal;
@@ -190,14 +202,21 @@ class TelegramService {
   /**
    * Парсить EXIT сигнал.
    *
-   * Формат:
+   * Формат (новий):
+   *   ✅ TAKEUSDTM сравнялись!
+   *   ⏱️ Через: 10 сек 232 мс
+   *   💰 Last: 0.037460
+   *
+   * Формат (старий, підтримується):
    *   ✅ BLESSUSDTM - Цены сравнялись!
    *   ⏱️ Через: 11 сек 850 мс
-   *   💰 Последняя цена: 0.00562100
    */
   _parseExitSignal(text) {
-    // Символ до " - Цены сравнялись"
-    const symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*Цены сравнялись/i);
+    // Символ (підтримка обох форматів)
+    let symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s+сравнялись/i);  // Новий формат (без дефісу)
+    if (!symbolMatch) {
+      symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*Цены сравнялись/i);  // Старий формат (з дефісом)
+    }
     if (!symbolMatch) {
       logger.warn('[TELEGRAM] EXIT signal: symbol not found');
       return null;

@@ -40,11 +40,13 @@ export function calculatePositionParameters(balance, entryPrice, direction, symb
     const minOrderQty = symbolInfo.minOrderQty || 1;
     const maxOrderQty = symbolInfo.maxOrderQty || 1000000;
 
-    // 1. Розмір позиції в USDT
-    const positionSizeUSDT = balance * (positionSizePercent / 100);
+    // 1. Розмір позиції в USDT (з урахуванням плеча!)
+    // Формула: positionSizeUSDT = balance × (percent / 100) × leverage
+    // Приклад: 20$ × 5% × 20x = 20$ position size
+    const positionSizeUSDT = balance * (positionSizePercent / 100) * leverage;
     logger.info(
       `[RISK] Balance: ${balance} USDT | ` +
-      `Position size: ${positionSizePercent}% = ${positionSizeUSDT.toFixed(4)} USDT`
+      `Position size: ${positionSizePercent}% × ${leverage}x = ${positionSizeUSDT.toFixed(4)} USDT`
     );
 
     // 2. Розрахунок кількості LOTS (контрактів)
