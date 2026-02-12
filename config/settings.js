@@ -46,7 +46,10 @@ export const config = {
 
   // Trading Settings
   trading: {
-    allowedSymbols: (process.env.ALLOWED_SYMBOLS || 'XBTUSDTM,ETHUSDTM').split(',').map(s => s.trim()),
+    blockedSymbols: (process.env.BLOCKED_SYMBOLS || '').split(',').map(s => s.trim()).filter(s => s),
+    // BLOCKED_SYMBOLS — чорний список монет які НЕ торгуємо
+    // Приклад: BLOCKED_SYMBOLS=BTCUSDTM,ETHUSDTM
+    // Якщо пусто — торгуємо всі монети
     maxDailyTrades: parseInt(process.env.MAX_DAILY_TRADES || '20'),
     maxOpenPositions: parseInt(process.env.MAX_OPEN_POSITIONS || '3'),
     dryRun: process.env.DRY_RUN === 'true'
