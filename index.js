@@ -12,7 +12,7 @@ import telegramService from './services/telegram.service.js';
 import positionService from './services/position.service.js';
 import riskService from './services/risk.service.js';
 import { isTradingHoursActive, getTradingHoursInfo } from './services/time.service.js';
-import { isSymbolAllowed, getCurrentDate } from './utils/helpers.js';
+import { isSymbolBlocked, getCurrentDate } from './utils/helpers.js';
 
 
 // Статистика
@@ -47,7 +47,7 @@ async function initialize() {
 
     logger.info(`[INIT] Starting balance: ${statistics.startBalance} USDT`);
     logger.info(`[INIT] Dry Run mode: ${config.trading.dryRun ? 'ENABLED' : 'DISABLED'}`);
-    logger.info(`[INIT] Allowed symbols: ${config.trading.allowedSymbols.join(', ')}`);
+    logger.info(`[INIT] Blocked symbols: ${config.trading.blockedSymbols.length > 0 ? config.trading.blockedSymbols.join(', ') : 'NONE (all symbols allowed)'}`);
     logger.info(`[INIT] Position size: ${config.risk.positionSizePercent}%, Leverage: ${config.risk.leverage}x`);
     logger.info(`[INIT] Trading hours: ${config.tradingHours.startHour}:00-${config.tradingHours.endHour}:00 UTC`);
 
@@ -166,11 +166,11 @@ async function handleSignal(signal) {
 async function validateSignal(signal) {
   const { symbol, direction } = signal;
 
-  // 1. Перевірка символу
-  if (!isSymbolAllowed(symbol, config.trading.allowedSymbols.join(','))) {
+  // 1. Перевірка чорного списку
+  if (isSymbolBlocked(symbol, config.trading.blockedSymbols.join(','))) {
     return {
       valid: false,
-      reason: `Symbol ${symbol} not in allowed list`,
+      reason: `Symbol ${symbol} is in blocked list`,
       info: {}
     };
   }
