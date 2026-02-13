@@ -172,16 +172,16 @@ class TelegramService {
     const markPrice = parseFloat(markPriceMatch[1]);
 
     // 5. Визначаємо напрямок
-    // ЛОГІКА: Mark Price підтягується до Last Price!
+    // ЛОГІКА: Last Price підтягується до Mark Price!
     // 
-    // Якщо Mark > Last:
-    //   - Mark ЗАВИЩЕНА і буде ПАДАТИ до Last
-    //   - Відкриваємо SHORT (очікуємо падіння Mark)
+    // Якщо Last > Mark:
+    //   - Last ВПАДЕ до Mark
+    //   - Відкриваємо LONG (ловимо відскок)
     //   - Емодзі: 🔴
     // 
-    // Якщо Mark < Last:
-    //   - Mark ЗАНИЖЕНА і буде РОСТИ до Last
-    //   - Відкриваємо LONG (очікуємо зростання Mark)
+    // Якщо Last < Mark:
+    //   - Last ВИРОСТЕ до Mark
+    //   - Відкриваємо SHORT (ловимо корекцію)
     //   - Емодзі: 🟢
     
     let direction;
@@ -189,10 +189,10 @@ class TelegramService {
     const emoji = emojiMatch ? emojiMatch[0] : null;
     
     // Перевіряємо емодзі як додатковий індикатор
-    if (emoji === '🔴' || markPrice > lastPrice) {
-      direction = 'SHORT'; // Mark завищена → буде падати до Last
-    } else if (emoji === '🟢' || markPrice < lastPrice) {
-      direction = 'LONG';  // Mark занижена → буде рости до Last
+    if (emoji === '🔴' || lastPrice > markPrice) {
+      direction = 'LONG'; // Last завищена → впаде до Mark → LONG
+    } else if (emoji === '🟢' || lastPrice < markPrice) {
+      direction = 'SHORT';  // Last занижена → виросте до Mark → SHORT
     } else {
       // Якщо ціни рівні (дуже рідкісний випадок)
       logger.warn(`[TELEGRAM] ENTRY signal: Last=${lastPrice} Mark=${markPrice} are equal, defaulting to LONG`);
@@ -201,11 +201,11 @@ class TelegramService {
     
     // Перевірка консистентності (емодзі має співпадати з розрахунком)
     if (emoji) {
-      const expectedEmoji = (markPrice > lastPrice) ? '🔴' : '🟢';
+      const expectedEmoji = (lastPrice > markPrice) ? '🔴' : '🟢';
       if (emoji !== expectedEmoji) {
         logger.warn(
           `[TELEGRAM] Emoji mismatch! Got ${emoji}, expected ${expectedEmoji} ` +
-          `(Mark=${markPrice}, Last=${lastPrice}). Using price-based direction.`
+          `(Last=${lastPrice}, Mark=${markPrice}). Using price-based direction.`
         );
       }
     }
@@ -226,7 +226,7 @@ class TelegramService {
     };
 
     // Пояснення логіки в лозі
-    const priceRelation = markPrice > lastPrice ? 'Mark > Last (падіння)' : 'Mark < Last (зростання)';
+    const priceRelation = lastPrice > markPrice ? 'Last > Mark' : 'Last < Mark';
     const emojiInfo = emoji ? ` | Emoji: ${emoji}` : '';
     
     logger.info(
