@@ -39,7 +39,7 @@ export const config = {
   risk: {
     leverage: parseInt(process.env.LEVERAGE || '10'),
     positionSizePercent: parseFloat(process.env.POSITION_SIZE_PERCENT || '5'),
-    marginMode: (process.env.MARGIN_MODE || 'CROSS').toUpperCase()
+    marginMode: (process.env.MARGIN_MODE || 'CROSS').toUpperCase(),
     minSpreadPercent: parseFloat(process.env.MIN_SPREAD_PERCENT || '0')
     // MARGIN_MODE: CROSS (весь баланс) або ISOLATED (окрема маржа на позицію)
     // Рекомендовано: CROSS для початківців
