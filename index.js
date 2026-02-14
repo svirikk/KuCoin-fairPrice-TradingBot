@@ -49,6 +49,7 @@ async function initialize() {
     logger.info(`[INIT] Dry Run mode: ${config.trading.dryRun ? 'ENABLED' : 'DISABLED'}`);
     logger.info(`[INIT] Blocked symbols: ${config.trading.blockedSymbols.length > 0 ? config.trading.blockedSymbols.join(', ') : 'NONE (all symbols allowed)'}`);
     logger.info(`[INIT] Position size: ${config.risk.positionSizePercent}%, Leverage: ${config.risk.leverage}x`);
+    logger.info(`[INIT] Min spread filter: ${config.risk.minSpreadPercent > 0 ? config.risk.minSpreadPercent + '%' : 'DISABLED'}`);
     logger.info(`[INIT] Trading hours: ${config.tradingHours.startHour}:00-${config.tradingHours.endHour}:00 UTC`);
 
     // Реєструємо обробник сигналів
@@ -164,9 +165,24 @@ async function handleSignal(signal) {
  * Валідація сигналу перед відкриттям позиції
  */
 async function validateSignal(signal) {
-  const { symbol, direction } = signal;
+  const { symbol, direction, spread } = signal;  // ← ДОДАТИ spread
 
-  // 1. Перевірка чорного списку
+  // ← ДОДАТИ ВСЮ ЦЮ ПЕРЕВІРКУ (№1)
+  // 1. Перевірка мінімального spread
+  if (config.risk.minSpreadPercent > 0) {
+    if (!spread || spread < config.risk.minSpreadPercent) {
+      return {
+        valid: false,
+        reason: `Spread ${spread ? spread.toFixed(2) : 'N/A'}% < minimum ${config.risk.minSpreadPercent}%`,
+        info: {
+          currentSpread: spread ? spread.toFixed(2) + '%' : 'N/A',
+          minRequired: config.risk.minSpreadPercent + '%'
+        }
+      };
+    }
+  }
+
+  // 2. Перевірка чорного списку
   if (isSymbolBlocked(symbol, config.trading.blockedSymbols.join(','))) {
     return {
       valid: false,
@@ -175,7 +191,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 2. Перевірка напрямку
+  // 3. Перевірка напрямку
   if (direction !== 'LONG' && direction !== 'SHORT') {
     return {
       valid: false,
@@ -184,7 +200,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 3. Перевірка торговельних годин
+  // 4. Перевірка торговельних годин
   if (!isTradingHoursActive()) {
     const hoursInfo = getTradingHoursInfo();
     return {
@@ -198,7 +214,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 4. Перевірка відкритих позицій
+  // 5. Перевірка відкритих позицій
   if (positionService.hasOpenPosition(symbol)) {
     return {
       valid: false,
@@ -207,7 +223,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 5. Перевірка максимальної кількості відкритих позицій
+  // 6. Перевірка максимальної кількості відкритих позицій
   if (positionService.getOpenPositionsCount() >= config.trading.maxOpenPositions) {
     return {
       valid: false,
@@ -216,7 +232,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 6. Перевірка максимальної кількості угод на день
+  // 7. Перевірка максимальної кількості угод на день
   if (statistics.dailyTrades >= config.trading.maxDailyTrades) {
     return {
       valid: false,
@@ -225,7 +241,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 7. Перевірка балансу
+  // 8. Перевірка балансу
   try {
     const balance = await kucoinService.getUSDTBalance();
     statistics.currentBalance = balance;
@@ -245,7 +261,7 @@ async function validateSignal(signal) {
     };
   }
 
-  // 8. Перевірка що символ існує та торгується
+  // 9. Перевірка що символ існує та торгується
   try {
     const symbolInfo = await kucoinService.getSymbolInfo(symbol);
     if (symbolInfo.status !== 'Open') {
