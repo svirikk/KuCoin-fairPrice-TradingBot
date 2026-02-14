@@ -40,6 +40,7 @@ export const config = {
     leverage: parseInt(process.env.LEVERAGE || '10'),
     positionSizePercent: parseFloat(process.env.POSITION_SIZE_PERCENT || '5'),
     marginMode: (process.env.MARGIN_MODE || 'CROSS').toUpperCase()
+    minSpreadPercent: parseFloat(process.env.MIN_SPREAD_PERCENT || '0')
     // MARGIN_MODE: CROSS (весь баланс) або ISOLATED (окрема маржа на позицію)
     // Рекомендовано: CROSS для початківців
   },
@@ -87,6 +88,11 @@ if (config.tradingHours.startHour < 0 || config.tradingHours.startHour > 23) {
 
 if (config.tradingHours.endHour < 0 || config.tradingHours.endHour > 23) {
   throw new Error('TRADING_END_HOUR must be between 0 and 23');
+}
+
+// ← ДОДАТИ ЦІ 3 РЯДКИ
+if (config.risk.minSpreadPercent < 0 || config.risk.minSpreadPercent > 100) {
+  throw new Error('MIN_SPREAD_PERCENT must be between 0 and 100');
 }
 
 export default config;
