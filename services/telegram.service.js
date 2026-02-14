@@ -389,6 +389,13 @@ class TelegramService {
 <b>Напрямок:</b> ${direction || 'N/A'}
 <b>Причина:</b> ${reason}`;
 
+    // ← ДОДАТИ ЦІ 6 РЯДКІВ
+    if (additionalInfo.currentSpread) {
+      message += `\n\n<b>Поточний spread:</b> ${additionalInfo.currentSpread}`;
+    }
+    if (additionalInfo.minRequired) {
+      message += `\n<b>Мінімум потрібно:</b> ${additionalInfo.minRequired}`;
+    }
     if (additionalInfo.currentTime) {
       message += `\n\n<b>Поточний час:</b> ${additionalInfo.currentTime} UTC`;
     }
