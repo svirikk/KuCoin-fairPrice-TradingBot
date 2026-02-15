@@ -117,11 +117,11 @@ class TelegramService {
   }
 
   /**
-   * Парсить ENTRY сигнал з динамічним визначенням напрямку.
+   * Парсить ENTRY сигнал з визначенням напрямку ТІЛЬКИ ПО ЕМОДЗІ.
    *
    * ЛОГІКА НАПРЯМКУ:
-   *   Last Price > Mark Price  →  SHORT (ціна завищена, очікуємо падіння)
-   *   Last Price < Mark Price  →  LONG  (ціна занижена, очікуємо зростання)
+   *   🔴 → LONG
+   *   🟢 → SHORT
    *
    * Формат (новий):
    *   🚨 KuCoin - 5.06%
@@ -171,44 +171,31 @@ class TelegramService {
     }
     const markPrice = parseFloat(markPriceMatch[1]);
 
-    // 5. Визначаємо напрямок
-    // ЛОГІКА: Last Price підтягується до Mark Price!
-    // 
-    // Якщо Last > Mark:
-    //   - Last ВПАДЕ до Mark
-    //   - Відкриваємо LONG (ловимо відскок)
-    //   - Емодзі: 🔴
-    // 
-    // Якщо Last < Mark:
-    //   - Last ВИРОСТЕ до Mark
-    //   - Відкриваємо SHORT (ловимо корекцію)
-    //   - Емодзі: 🟢
-    
+    // 5. Визначаємо напрямок ТІЛЬКИ ПО ЕМОДЗІ
+    // ПРАВИЛО:
+    //   🔴 = LONG
+    //   🟢 = SHORT
     let direction;
     const emojiMatch = text.match(/[🔴🟢]/);
     const emoji = emojiMatch ? emojiMatch[0] : null;
-    
-    // Перевіряємо емодзі як додатковий індикатор
-    if (emoji === '🔴' || lastPrice > markPrice) {
-      direction = 'LONG'; // Last завищена → впаде до Mark → LONG
-    } else if (emoji === '🟢' || lastPrice < markPrice) {
-      direction = 'SHORT';  // Last занижена → виросте до Mark → SHORT
-    } else {
-      // Якщо ціни рівні (дуже рідкісний випадок)
-      logger.warn(`[TELEGRAM] ENTRY signal: Last=${lastPrice} Mark=${markPrice} are equal, defaulting to LONG`);
+
+    if (!emoji) {
+      logger.warn('[TELEGRAM] ENTRY signal: emoji not found, cannot determine direction');
+      return null;
+    }
+
+    if (emoji === '🔴') {
       direction = 'LONG';
+    } else if (emoji === '🟢') {
+      direction = 'SHORT';
+    } else {
+      logger.warn(`[TELEGRAM] ENTRY signal: unknown emoji ${emoji}`);
+      return null;
     }
-    
-    // Перевірка консистентності (емодзі має співпадати з розрахунком)
-    if (emoji) {
-      const expectedEmoji = (lastPrice > markPrice) ? '🔴' : '🟢';
-      if (emoji !== expectedEmoji) {
-        logger.warn(
-          `[TELEGRAM] Emoji mismatch! Got ${emoji}, expected ${expectedEmoji} ` +
-          `(Last=${lastPrice}, Mark=${markPrice}). Using price-based direction.`
-        );
-      }
-    }
+
+    logger.info(
+      `[TELEGRAM] Direction determined by emoji: ${emoji} → ${direction}`
+    );
 
     // 6. Час (опційно)
     const timeMatch = text.match(/Обнаружено:\s*([^\n]+)/i);
@@ -225,13 +212,9 @@ class TelegramService {
       emoji  // Додаємо емодзі для дебагу
     };
 
-    // Пояснення логіки в лозі
-    const priceRelation = lastPrice > markPrice ? 'Last > Mark' : 'Last < Mark';
-    const emojiInfo = emoji ? ` | Emoji: ${emoji}` : '';
-    
     logger.info(
       `[TELEGRAM] Parsed ENTRY signal: ${symbol} ${direction} | ` +
-      `Last=${lastPrice} Mark=${markPrice} | ${priceRelation}${emojiInfo}`
+      `Emoji: ${emoji} | Spread: ${spread}%`
     );
 
     return signal;
@@ -389,7 +372,6 @@ class TelegramService {
 <b>Напрямок:</b> ${direction || 'N/A'}
 <b>Причина:</b> ${reason}`;
 
-    // ← ДОДАТИ ЦІ 6 РЯДКІВ
     if (additionalInfo.currentSpread) {
       message += `\n\n<b>Поточний spread:</b> ${additionalInfo.currentSpread}`;
     }
