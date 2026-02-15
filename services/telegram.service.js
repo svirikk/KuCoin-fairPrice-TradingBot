@@ -176,20 +176,18 @@ class TelegramService {
     //   🔴 = LONG
     //   🟢 = SHORT
     let direction;
-    const emojiMatch = text.match(/[🔴🟢]/);
-    const emoji = emojiMatch ? emojiMatch[0] : null;
-
-    if (!emoji) {
-      logger.warn('[TELEGRAM] ENTRY signal: emoji not found, cannot determine direction');
-      return null;
-    }
-
-    if (emoji === '🔴') {
+    let emoji = null;
+    
+    // Шукаємо емодзі через .includes() (надійніше ніж regex)
+    if (text.includes('🔴')) {
+      emoji = '🔴';
       direction = 'LONG';
-    } else if (emoji === '🟢') {
+    } else if (text.includes('🟢')) {
+      emoji = '🟢';
       direction = 'SHORT';
     } else {
-      logger.warn(`[TELEGRAM] ENTRY signal: unknown emoji ${emoji}`);
+      logger.warn('[TELEGRAM] ENTRY signal: emoji not found (neither 🔴 nor 🟢), cannot determine direction');
+      logger.warn(`[TELEGRAM] ENTRY signal text (first 200 chars): ${text.substring(0, 200)}`);
       return null;
     }
 
