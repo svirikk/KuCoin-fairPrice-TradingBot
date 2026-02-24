@@ -15,7 +15,6 @@ class TelegramService {
    * Налаштовує обробник повідомлень
    */
   setupMessageHandler() {
-    // Слухаємо повідомлення З КАНАЛУ
     this.bot.on('channel_post', (msg) => {
       if (msg.chat.id.toString() === this.channelId.toString()) {
         this.handleChannelMessage(msg);
@@ -58,53 +57,25 @@ class TelegramService {
 
   /**
    * Перевіряє чи це сигнальне повідомлення від KuCoin Monitor Bot.
-   * Розпізнає два типи:
-   *   - "🚨 KuCoin"          — відкриття позиції (ENTRY)
-   *   - "сравнялись"         — закриття позиції (EXIT, новий і старий формати)
    */
   isSignalMessage(text) {
     if (!text) return false;
-    
-    // ENTRY: "🚨 KuCoin - X.XX%"
+
     const isEntry = text.includes('🚨 KuCoin') && text.includes('👉') && text.includes('👈');
-    
-    // EXIT: "✅ ... сравнялись!" (новий формат без "Цены")
-    const isExit = text.includes('сравнялись');
-    
+    const isExit = text.includes('сравнялись') || text.includes('зрівнялись');
+
     return isEntry || isExit;
   }
 
   /**
    * Парсить сигнал з повідомлення KuCoin Monitor Bot.
-   *
-   * Тип 1 — ENTRY (відкриття):
-   *   Формат:
-   *     🚨 KuCoin - 5.55%
-   *     👉BLESSUSDTM👈
-   *     🟢 Последняя цена: 0.00559200
-   *     ⚖️ Справедливая: 0.00529800
-   *     ⏰ Обнаружено: 16:50:19.198 UTC
-   *
-   *   Повертає: { type: 'OPEN', symbol, direction, lastPrice, fairPrice, spread, timestamp }
-   *
-   * Тип 2 — EXIT (закриття):
-   *   Формат:
-   *     ✅ BLESSUSDTM - Цены сравнялись!
-   *     ⏱️ Через: 11 сек 850 мс
-   *     💰 Последняя цена: 0.00562100
-   *
-   *   Повертає: { type: 'CLOSE', symbol, timestamp }
    */
   parseSignal(text) {
     try {
-      // Спочатку перевіряємо EXIT (підтримка обох форматів)
-      // Формат 1: "✅ SYMBOL - Цены сравнялись!"
-      // Формат 2: "✅ SYMBOL сравнялись!"
-      if (text.includes('сравнялись')) {
+      if (text.includes('сравнялись') || text.includes('зрівнялись')) {
         return this._parseExitSignal(text);
       }
 
-      // Інакше це ENTRY
       if (text.includes('🚨 KuCoin')) {
         return this._parseEntrySignal(text);
       }
@@ -117,24 +88,11 @@ class TelegramService {
   }
 
   /**
-   * Парсить ENTRY сигнал з визначенням напрямку ТІЛЬКИ ПО ЕМОДЗІ.
+   * Парсить ENTRY сигнал.
    *
-   * ЛОГІКА НАПРЯМКУ:
-   *   🔴 → LONG
-   *   🟢 → SHORT
-   *
-   * Формат (новий):
-   *   🚨 KuCoin - 5.06%
-   *   👉TAKEUSDTM👈
-   *   🟢 Last: 0.038620
-   *   ⚖️ Mark: 0.036760
-   *   😎 @ArturLudit
-   *
-   * Формат (старий, підтримується):
-   *   🚨 KuCoin - 5.55%
-   *   👉BLESSUSDTM👈
-   *   🟢 Последняя цена: 0.00559200
-   *   ⚖️ Справедливая: 0.00529800
+   * ПРАВИЛО ЕМОДЗІ (актуальне):
+   *   🟢 = LONG
+   *   🔴 = SHORT
    */
   _parseEntrySignal(text) {
     // 1. Символ між 👉 та 👈
@@ -149,54 +107,50 @@ class TelegramService {
     const spreadMatch = text.match(/KuCoin\s*-\s*([\d.]+)%/);
     const spread = spreadMatch ? parseFloat(spreadMatch[1]) : null;
 
-    // 3. Last Price (підтримка обох форматів)
-    let lastPriceMatch = text.match(/Last:\s*([\d.]+)/i);  // Новий формат
-    if (!lastPriceMatch) {
-      lastPriceMatch = text.match(/Последняя цена:\s*([\d.]+)/i);  // Старий формат
-    }
+    // 3. Last Price — підтримка всіх форматів
+    let lastPriceMatch = text.match(/Last:\s*([\d.]+)/i);                           // старий англ
+    if (!lastPriceMatch) lastPriceMatch = text.match(/Последняя цена:\s*([\d.]+)/i); // старий рос
+    if (!lastPriceMatch) lastPriceMatch = text.match(/💱[^:]+:\s*([\d.]+)/);         // новий (BID/ASK)
     if (!lastPriceMatch) {
       logger.warn('[TELEGRAM] ENTRY signal: Last Price not found');
       return null;
     }
     const lastPrice = parseFloat(lastPriceMatch[1]);
 
-    // 4. Mark Price (підтримка обох форматів)
-    let markPriceMatch = text.match(/Mark:\s*([\d.]+)/i);  // Новий формат
-    if (!markPriceMatch) {
-      markPriceMatch = text.match(/Справедливая:\s*([\d.]+)/i);  // Старий формат
-    }
+    // 4. Mark Price — підтримка всіх форматів
+    let markPriceMatch = text.match(/Mark:\s*([\d.]+)/i);                           // старий англ
+    if (!markPriceMatch) markPriceMatch = text.match(/Справедливая:\s*([\d.]+)/i);  // старий рос
+    if (!markPriceMatch) markPriceMatch = text.match(/Справедлива:\s*([\d.]+)/i);   // новий укр
     if (!markPriceMatch) {
       logger.warn('[TELEGRAM] ENTRY signal: Mark Price not found');
       return null;
     }
     const markPrice = parseFloat(markPriceMatch[1]);
 
-    // 5. Визначаємо напрямок ТІЛЬКИ ПО ЕМОДЗІ
-    // ПРАВИЛО:
-    //   🔴 = LONG
-    //   🟢 = SHORT
+    // 5. Визначаємо напрямок ПО ЕМОДЗІ
+    // ПРАВИЛО (актуальне):
+    //   🟢 = LONG
+    //   🔴 = SHORT
     let direction;
     let emoji = null;
-    
-    // Шукаємо емодзі через .includes() (надійніше ніж regex)
-    if (text.includes('🔴')) {
-      emoji = '🔴';
-      direction = 'LONG';
-    } else if (text.includes('🟢')) {
+
+    if (text.includes('🟢')) {
       emoji = '🟢';
+      direction = 'LONG';
+    } else if (text.includes('🔴')) {
+      emoji = '🔴';
       direction = 'SHORT';
     } else {
-      logger.warn('[TELEGRAM] ENTRY signal: emoji not found (neither 🔴 nor 🟢), cannot determine direction');
+      logger.warn('[TELEGRAM] ENTRY signal: emoji not found (neither 🟢 nor 🔴), cannot determine direction');
       logger.warn(`[TELEGRAM] ENTRY signal text (first 200 chars): ${text.substring(0, 200)}`);
       return null;
     }
 
-    logger.info(
-      `[TELEGRAM] Direction determined by emoji: ${emoji} → ${direction}`
-    );
+    logger.info(`[TELEGRAM] Direction determined by emoji: ${emoji} → ${direction}`);
 
-    // 6. Час (опційно)
-    const timeMatch = text.match(/Обнаружено:\s*([^\n]+)/i);
+    // 6. Час — підтримка всіх форматів
+    let timeMatch = text.match(/Обнаружено:\s*([^\n]+)/i);       // старий рос
+    if (!timeMatch) timeMatch = text.match(/Виявлено:\s*([^\n]+)/i); // новий укр
     const timestamp = timeMatch ? this._parseKuCoinTime(timeMatch[1]) : Date.now();
 
     const signal = {
@@ -204,10 +158,10 @@ class TelegramService {
       symbol,
       direction,
       lastPrice,
-      fairPrice: markPrice,  // Використовуємо Mark Price як Fair Price
+      fairPrice: markPrice,
       spread,
       timestamp,
-      emoji  // Додаємо емодзі для дебагу
+      emoji
     };
 
     logger.info(
@@ -220,40 +174,30 @@ class TelegramService {
 
   /**
    * Парсить EXIT сигнал.
-   *
-   * Підтримувані формати:
-   *   1. ✅ SYMBOL - Цены сравнялись!  (старий, з "Цены" і дефісом)
-   *   2. ✅ SYMBOL сравнялись!         (новий, без "Цены", без дефісу)
-   *   3. ✅ SYMBOL - сравнялись!       (з дефісом, без "Цены")
+   * Підтримує російські та українські варіанти повідомлень.
    */
   _parseExitSignal(text) {
-    // Спробуємо знайти символ різними способами
     let symbolMatch;
-    
-    // Варіант 1: з дефісом і "Цены" → "✅ SYMBOL - Цены сравнялись"
+
+    // Російські варіанти
     symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*Цены\s+сравнялись/i);
-    
-    // Варіант 2: з дефісом, без "Цены" → "✅ SYMBOL - сравнялись"
-    if (!symbolMatch) {
-      symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*сравнялись/i);
-    }
-    
-    // Варіант 3: без дефісу, без "Цены" → "✅ SYMBOL сравнялись"
-    if (!symbolMatch) {
-      symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s+сравнялись/i);
-    }
-    
-    // Варіант 4: universal fallback - просто знайти будь-яке слово перед "сравнялись"
-    if (!symbolMatch) {
-      symbolMatch = text.match(/([A-Z0-9]+).*?сравнялись/i);
-    }
-    
+    if (!symbolMatch) symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*сравнялись/i);
+    if (!symbolMatch) symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s+сравнялись/i);
+
+    // Українські варіанти
+    if (!symbolMatch) symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*Ціни\s+зрівнялись/i);
+    if (!symbolMatch) symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s*-\s*зрівнялись/i);
+    if (!symbolMatch) symbolMatch = text.match(/✅\s*([A-Z0-9]+)\s+зрівнялись/i);
+
+    // Fallback
+    if (!symbolMatch) symbolMatch = text.match(/([A-Z0-9]+).*?(?:сравнялись|зрівнялись)/i);
+
     if (!symbolMatch) {
       logger.warn('[TELEGRAM] EXIT signal: symbol not found');
       logger.warn(`[TELEGRAM] EXIT signal text: ${text.substring(0, 100)}`);
       return null;
     }
-    
+
     const symbol = symbolMatch[1];
 
     const signal = {
@@ -271,11 +215,10 @@ class TelegramService {
    */
   _parseKuCoinTime(timeStr) {
     try {
-      // Формат: "16:50:19.198 UTC"
       const today = new Date();
       const [time] = timeStr.split(' ');
       const [hours, minutes, seconds] = time.split(':');
-      
+
       today.setUTCHours(parseInt(hours), parseInt(minutes), parseInt(parseFloat(seconds)), 0);
       return today.getTime();
     } catch (error) {
@@ -309,82 +252,19 @@ class TelegramService {
     }
   }
 
-  /**
-   * Форматує повідомлення про відкриття позиції
-   */
-  formatPositionOpenedMessage(positionData) {
-    const {
-      symbol,
-      direction,
-      entryPrice,
-      quantity,
-      leverage,
-      positionSizeUSDT,
-      balance,
-      timestamp
-    } = positionData;
-
-    const cleanSymbol = symbol ? symbol.replace('USDTM', '').replace('USDT', '') : 'UNKNOWN';
-    const directionEmoji = direction === 'LONG' ? '📈' : '📉';
-
-    return `✅ <b>ПОЗИЦІЯ ВІДКРИТА</b>
-
-<b>Символ:</b> ${symbol}
-<b>Напрямок:</b> ${directionEmoji} ${direction}
-<b>Ціна входу:</b> $${entryPrice}
-<b>Кількість:</b> ${quantity} ${cleanSymbol}
-<b>Плече:</b> ${leverage}x
-💰 <b>Розмір позиції:</b> $${positionSizeUSDT ? positionSizeUSDT.toFixed(2) : '—'}
-
-Сигнал: ${new Date(timestamp).toLocaleString('uk-UA', { timeZone: 'UTC' })} UTC`;
-  }
-
-  /**
-   * Форматує повідомлення про закриття позиції
-   */
-  formatPositionClosedMessage(positionData) {
-    const { symbol, direction, entryPrice, exitPrice, pnl, pnlPercent, duration } = positionData;
-
-    const isProfit = pnl >= 0;
-    const emoji = isProfit ? '🟢' : '🔴';
-    const resultText = isProfit ? 'ПРОФІТ' : 'ЗБИТОК';
-
-    return `${emoji} <b>ПОЗИЦІЯ ЗАКРИТА - ${resultText}</b>
-
-<b>Символ:</b> ${symbol}
-<b>Напрямок:</b> ${direction}
-<b>Вхід:</b> $${entryPrice}
-<b>Вихід:</b> $${exitPrice}
-<b>Результат:</b> ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)})
-
-<b>Тривалість:</b> ${duration}`;
-  }
+  // Повідомлення про відкриття/закриття позиції прибрані навмисно
 
   /**
    * Форматує повідомлення про ігнорування сигналу
    */
   formatSignalIgnoredMessage(symbol, direction, reason, additionalInfo = {}) {
-    let message = `⏰ <b>СИГНАЛ ПРОІГНОРОВАНО</b>
+    let message = `⏰ <b>СИГНАЛ ПРОІГНОРОВАНО</b>\n\n<b>Символ:</b> ${symbol}\n<b>Напрямок:</b> ${direction || 'N/A'}\n<b>Причина:</b> ${reason}`;
 
-<b>Символ:</b> ${symbol}
-<b>Напрямок:</b> ${direction || 'N/A'}
-<b>Причина:</b> ${reason}`;
-
-    if (additionalInfo.currentSpread) {
-      message += `\n\n<b>Поточний spread:</b> ${additionalInfo.currentSpread}`;
-    }
-    if (additionalInfo.minRequired) {
-      message += `\n<b>Мінімум потрібно:</b> ${additionalInfo.minRequired}`;
-    }
-    if (additionalInfo.currentTime) {
-      message += `\n\n<b>Поточний час:</b> ${additionalInfo.currentTime} UTC`;
-    }
-    if (additionalInfo.tradingHours) {
-      message += `\n<b>Торгові години:</b> ${additionalInfo.tradingHours}`;
-    }
-    if (additionalInfo.nextTrading) {
-      message += `\n<b>Наступна торгівля:</b> через ${additionalInfo.nextTrading}`;
-    }
+    if (additionalInfo.currentSpread) message += `\n\n<b>Поточний spread:</b> ${additionalInfo.currentSpread}`;
+    if (additionalInfo.minRequired)   message += `\n<b>Мінімум потрібно:</b> ${additionalInfo.minRequired}`;
+    if (additionalInfo.currentTime)   message += `\n\n<b>Поточний час:</b> ${additionalInfo.currentTime} UTC`;
+    if (additionalInfo.tradingHours)  message += `\n<b>Торгові години:</b> ${additionalInfo.tradingHours}`;
+    if (additionalInfo.nextTrading)   message += `\n<b>Наступна торгівля:</b> через ${additionalInfo.nextTrading}`;
 
     return message;
   }
