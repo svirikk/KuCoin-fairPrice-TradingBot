@@ -1,22 +1,17 @@
 import kucoinService from './kucoin.service.js';
-import telegramService from './telegram.service.js';
 import { config } from '../config/settings.js';
 import logger from '../utils/logger.js';
 import { calculatePnL, calculatePnLPercent, formatDuration } from '../utils/helpers.js';
 
 class PositionService {
   constructor() {
-    this.openPositions = new Map(); // symbol -> position data
+    this.openPositions = new Map();
     this.closedPositions = [];
     this.monitoringInterval = null;
   }
 
   /**
    * Додає відкриту позицію до моніторингу.
-   * TP/SL більше не зберігаються — позиція закривається по CLOSE сигналу.
-   * 
-   * ВАЖЛИВО: KuCoin не має positionIdx (немає hedge mode),
-   * тому цей параметр видалено порівняно з Bybit версією.
    */
   addOpenPosition(positionData) {
     const {
@@ -33,7 +28,7 @@ class PositionService {
       symbol,
       direction,
       entryPrice,
-      quantity,              // lots (цілі числа)
+      quantity,
       orderId,
       timestamp: timestamp || Date.now(),
       positionSizeUSDT: positionSizeUSDT || 0
@@ -43,7 +38,7 @@ class PositionService {
   }
 
   /**
-   * Видаляє позицію з моніторингу (коли закрита)
+   * Видаляє позицію з моніторингу
    */
   removeOpenPosition(symbol) {
     const position = this.openPositions.get(symbol);
@@ -98,7 +93,7 @@ class PositionService {
   /**
    * Запускає моніторинг позицій
    */
-  startMonitoring(intervalMs = 30000) { // 30 секунд за замовчуванням
+  startMonitoring(intervalMs = 30000) {
     if (this.monitoringInterval) {
       logger.warn('[POSITION] Monitoring already running');
       return;
@@ -131,17 +126,14 @@ class PositionService {
         return;
       }
 
-      // Перевіряємо КОЖЕН символ окремо (надійніше)
       for (const [symbol, trackedPosition] of this.openPositions.entries()) {
         try {
           const exchangePositions = await kucoinService.getOpenPositions(symbol);
           const exchangePosition = exchangePositions.find(pos => pos.symbol === symbol);
 
           if (!exchangePosition || parseFloat(exchangePosition.size) === 0) {
-            // Позиція закрита на біржі
             await this.handlePositionClosed(symbol, trackedPosition);
           } else {
-            // Позиція все ще відкрита, оновлюємо дані
             await this.updatePositionData(symbol, exchangePosition);
           }
         } catch (error) {
@@ -155,11 +147,10 @@ class PositionService {
   }
 
   /**
-   * Обробляє закриття позиції
+   * Обробляє закриття позиції (без Telegram-повідомлення)
    */
   async handlePositionClosed(symbol, trackedPosition) {
     try {
-      // Отримуємо останню угоду для визначення ціни закриття
       const trades = await kucoinService.getTradeHistory(symbol);
       const closeTrade = trades.find(t =>
         t.symbol === symbol &&
@@ -170,8 +161,6 @@ class PositionService {
       const exitPrice = closeTrade ? parseFloat(closeTrade.price || closeTrade.execPrice) : trackedPosition.entryPrice;
       const duration = Math.floor((Date.now() - trackedPosition.timestamp) / 1000);
 
-      // Розраховуємо P&L
-      // ВАЖЛИВО: для KuCoin треба враховувати multiplier
       const pnl = calculatePnL(
         trackedPosition.entryPrice,
         exitPrice,
@@ -193,19 +182,10 @@ class PositionService {
         duration: formatDuration(duration)
       };
 
-      // Додаємо до історії
       this.addClosedPosition(closedPositionData);
-
-      // Видаляємо з відкритих
       this.removeOpenPosition(symbol);
 
-      // Відправляємо повідомлення в Telegram
-      if (!config.trading.dryRun) {
-        await telegramService.sendMessage(
-          config.telegram.channelId,
-          telegramService.formatPositionClosedMessage(closedPositionData)
-        );
-      }
+      // ── Повідомлення про закриття позиції прибрано навмисно ──
 
       logger.info(`[POSITION] Position closed: ${symbol}, P&L: ${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
     } catch (error) {
@@ -220,9 +200,7 @@ class PositionService {
     const trackedPosition = this.openPositions.get(symbol);
     if (!trackedPosition) return;
 
-    // Оновлюємо unrealised P&L
     const unrealisedPnl = parseFloat(exchangePosition.unrealisedPnl || '0');
-
     logger.debug(`[POSITION] ${symbol}: Unrealised P&L: ${unrealisedPnl.toFixed(2)} USDT`);
   }
 
