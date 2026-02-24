@@ -56,7 +56,7 @@ async function initialize() {
     telegramService.onSignal(handleSignal);
 
     // Запускаємо моніторинг позицій
-    positionService.startMonitoring(30000); // Перевірка кожні 30 секунд
+    positionService.startMonitoring(30000);
 
     // Відправляємо повідомлення про запуск
     if (!config.trading.dryRun) {
@@ -83,10 +83,6 @@ async function initialize() {
 
 /**
  * Обробка торговельного сигналу від KuCoin Monitor Bot.
- *
- * Розгалуження:
- *   - signal.type === 'OPEN'  → openPosition()
- *   - signal.type === 'CLOSE' → closePosition()
  */
 async function handleSignal(signal) {
   try {
@@ -98,7 +94,6 @@ async function handleSignal(signal) {
 
     // --- OPEN сигнал ---
     if (type === 'OPEN') {
-      // Валідація сигналу
       const validation = await validateSignal(signal);
 
       if (!validation.valid) {
@@ -127,7 +122,6 @@ async function handleSignal(signal) {
         return;
       }
 
-      // Відкриваємо позицію
       await openPosition(signal);
     }
 
@@ -165,9 +159,8 @@ async function handleSignal(signal) {
  * Валідація сигналу перед відкриттям позиції
  */
 async function validateSignal(signal) {
-  const { symbol, direction, spread } = signal;  // ← ДОДАТИ spread
+  const { symbol, direction, spread } = signal;
 
-  // ← ДОДАТИ ВСЮ ЦЮ ПЕРЕВІРКУ (№1)
   // 1. Перевірка мінімального spread
   if (config.risk.minSpreadPercent > 0) {
     if (!spread || spread < config.risk.minSpreadPercent) {
@@ -284,7 +277,6 @@ async function validateSignal(signal) {
 
 /**
  * Відкриття позиції по OPEN сигналу.
- * TP/SL НЕ встановлюються — позиція закривається виключно по CLOSE сигналу.
  */
 async function openPosition(signal) {
   const { symbol, direction, timestamp } = signal;
@@ -292,17 +284,12 @@ async function openPosition(signal) {
   try {
     logger.info(`[TRADE] Opening position: ${symbol} ${direction}`);
 
-    // Отримуємо поточний баланс
     const balance = await kucoinService.getUSDTBalance();
     statistics.currentBalance = balance;
 
-    // Отримуємо поточну ціну
     const currentPrice = await kucoinService.getCurrentPrice(symbol);
-
-    // Отримуємо інформацію про символ
     const symbolInfo = await kucoinService.getSymbolInfo(symbol);
 
-    // Розраховуємо параметри позиції (БЕЗ TP/SL)
     const positionParams = riskService.calculatePositionParameters(
       balance,
       currentPrice,
@@ -310,7 +297,6 @@ async function openPosition(signal) {
       symbolInfo
     );
 
-    // Перевірка достатності балансу
     if (!riskService.hasSufficientBalance(balance, positionParams.requiredMargin)) {
       throw new Error(
         `Insufficient balance. Required: ${positionParams.requiredMargin.toFixed(4)} USDT, ` +
@@ -319,7 +305,6 @@ async function openPosition(signal) {
     }
 
     if (config.trading.dryRun) {
-      // DRY RUN режим - тільки логування
       logger.info('[DRY RUN] Would open position:');
       logger.info(`  Symbol: ${symbol}`);
       logger.info(`  Direction: ${direction}`);
@@ -328,7 +313,6 @@ async function openPosition(signal) {
       logger.info(`  Position Size: ${positionParams.positionSizeUSDT} USDT`);
       logger.info(`  Required Margin: ${positionParams.requiredMargin} USDT`);
 
-      // Симулюємо успішне відкриття
       positionService.addOpenPosition({
         symbol,
         direction,
@@ -346,22 +330,17 @@ async function openPosition(signal) {
     }
 
     // Реальна торгівля
-    // KuCoin не потребує окремого setLeverage — плече в ордері
     await kucoinService.setLeverage(symbol, config.risk.leverage);
 
-    // Відкриваємо Market ордер
     const side = direction === 'LONG' ? 'buy' : 'sell';
     const orderResult = await kucoinService.openMarketOrder(
       symbol,
       side,
       positionParams.quantity,
       config.risk.leverage,
-      config.risk.marginMode          // CROSS або ISOLATED
+      config.risk.marginMode
     );
 
-    // TP/SL НЕ встановлюються — позиція закривається по CLOSE сигналу
-
-    // Додаємо позицію до моніторингу
     positionService.addOpenPosition({
       symbol,
       direction,
@@ -372,20 +351,10 @@ async function openPosition(signal) {
       positionSizeUSDT: positionParams.positionSizeUSDT
     });
 
-    // Оновлюємо статистику
     statistics.totalTrades++;
     statistics.dailyTrades++;
 
-    // Відправляємо повідомлення в Telegram
-    await telegramService.sendMessage(
-      config.telegram.channelId,
-      telegramService.formatPositionOpenedMessage({
-        ...positionParams,
-        symbol,
-        balance,
-        timestamp
-      })
-    );
+    // ── Повідомлення про відкриття позиції прибрано навмисно ──
 
     logger.info(`[TRADE] ✅ Position opened successfully: ${symbol} ${direction}`);
 
@@ -396,13 +365,7 @@ async function openPosition(signal) {
 }
 
 /**
- * Закриття позиції по CLOSE сигналу від KuCoin Monitor Bot.
- *
- * Логіка:
- *   1. Перевіряє наявність відкритої позиції через positionService
- *   2. Якщо є — закриває Market ордером з closeOrder: true
- *   3. Відправляє повідомлення в Telegram
- *   4. Видаляє позицію з positionService
+ * Закриття позиції по CLOSE сигналу.
  */
 async function closePosition(signal) {
   const { symbol } = signal;
@@ -410,7 +373,6 @@ async function closePosition(signal) {
   try {
     logger.info(`[TRADE] Received CLOSE signal: ${symbol}`);
 
-    // 1. Перевіряємо наявність відкритої позиції
     if (!positionService.hasOpenPosition(symbol)) {
       logger.warn(`[TRADE] No open position found for ${symbol} — ignoring CLOSE signal`);
       return;
@@ -419,22 +381,18 @@ async function closePosition(signal) {
     const trackedPosition = positionService.getOpenPosition(symbol);
 
     if (config.trading.dryRun) {
-      // DRY RUN — симулюємо закриття
       logger.info('[DRY RUN] Would close position:');
       logger.info(`  Symbol: ${symbol}`);
       logger.info(`  Direction: ${trackedPosition.direction}`);
       logger.info(`  Entry Price: ${trackedPosition.entryPrice}`);
       logger.info(`  Quantity: ${trackedPosition.quantity} lots`);
 
-      // Видаляємо з positionService
       positionService.removeOpenPosition(symbol);
 
       logger.info(`[TRADE] ✅ [DRY RUN] Position closed: ${symbol}`);
       return;
     }
 
-    // 2. Реальна торгівля - закриваємо на біржі
-    // Визначаємо closeSide: LONG → sell, SHORT → buy
     const closeSide = trackedPosition.direction === 'LONG' ? 'sell' : 'buy';
 
     const closeResult = await kucoinService.closeMarketOrder(
@@ -442,21 +400,15 @@ async function closePosition(signal) {
       closeSide,
       trackedPosition.quantity,
       config.risk.leverage,
-      config.risk.marginMode          // CROSS або ISOLATED
+      config.risk.marginMode
     );
 
     logger.info(`[TRADE] Close order executed: Order ID ${closeResult.orderId}`);
-
-    // 3. positionService.checkPositions() виявить закриття та відправить повідомлення
-    // Альтернативно можна одразу видалити позицію тут:
-    // positionService.removeOpenPosition(symbol);
-
     logger.info(`[TRADE] ✅ Position close order submitted: ${symbol}`);
 
   } catch (error) {
     logger.error(`[TRADE] Error closing position ${symbol}: ${error.message}`);
 
-    // Відправляємо повідомлення про помилку
     try {
       if (!config.trading.dryRun) {
         await telegramService.sendMessage(
@@ -490,7 +442,7 @@ function scheduleDailyReport() {
 
   setTimeout(() => {
     sendDailyReport();
-    setInterval(sendDailyReport, 24 * 60 * 60 * 1000); // Кожні 24 години
+    setInterval(sendDailyReport, 24 * 60 * 60 * 1000);
   }, msUntilReport);
 
   logger.info(`[REPORT] Daily report scheduled for ${reportTime.toISOString()}`);
@@ -503,7 +455,6 @@ async function sendDailyReport() {
   try {
     const currentDate = getCurrentDate();
 
-    // Скидаємо щоденну статистику якщо новий день
     if (currentDate !== statistics.lastResetDate) {
       statistics.dailyTrades = 0;
       statistics.signalsIgnored = 0;
